@@ -10,12 +10,12 @@ pub struct TorrentFile{
     name : String,
     length : i64,
     piece_length : i64,
-    pieces: Vec<u8>,
+    pieces: Vec<[u8;20]>,
     info_hash : [u8; 20],
 }
 
 impl TorrentFile {
-    pub fn new(announce: String, name: String, length: i64, piece_length : i64, pieces : Vec<u8>, info_hash : [u8; 20]) -> Self {
+    pub fn new(announce: String, name: String, length: i64, piece_length : i64, pieces : Vec<[u8;20]>, info_hash : [u8; 20]) -> Self {
         Self { announce,name,length, piece_length, pieces, info_hash}
     }
 
@@ -24,13 +24,25 @@ impl TorrentFile {
         let name = Self::find_key_string_in_bencode(bencode, "name".to_string())?;
         let length = Self::find_key_integer_in_bencode(bencode, "length".to_string())?;
         let piece_length = Self::find_key_integer_in_bencode(bencode, "piece length".to_string())?;
-        let pieces = Self::find_key_bytes_in_bencode(bencode, "pieces".to_string())?;
         let bencode_info = Self::find_key_dict_in_bencode(bencode, "info".to_string())?;
         let info_hash = Self::compute_info_hash(&bencode_info);
+        let all_pieces = Self::find_key_bytes_in_bencode(bencode, "pieces".to_string())?;
+        let pieces = Self::divide_pieces(&all_pieces);
 
         Ok(TorrentFile::new(announce,name,length,piece_length,pieces,info_hash))
     }
 
+    fn divide_pieces(pieces: &Vec<u8>) -> Vec<[u8;20]> {
+        let mut divided : Vec<[u8;20]> = vec![];
+        let mut chunk = 20;
+        while chunk <= pieces.len() {
+            let slice = &pieces[chunk-20..chunk];
+            let array: [u8; 20] = slice.try_into().expect("slice must be 20 bytes");
+            divided.push(array);
+            chunk += 20;
+        }
+        divided
+    }
 
 
     fn compute_info_hash(info: &BencodeValue) -> [u8; 20] {
