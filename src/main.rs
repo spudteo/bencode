@@ -1,11 +1,13 @@
 mod parser;
 mod traits;
+mod request;
 
 use std::{fs};
 use crate::parser::bencode::parse_bencode;
 use crate::parser::torrent_file::TorrentFile;
 use crate::parser::peers::AnnounceResponse;
 use crate::traits::from_bencode::CreateFromBencode;
+use crate::request::handshake::Handshake;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -23,5 +25,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let announce_response = parse_bencode(&body_bytes);
     let announce = AnnounceResponse::parse(&announce_response.0);
     println!("{:?}", announce);
+    let peer_id = *b"01234567890123456789";
+    let handshake = Handshake::new(torrent.info_hash, peer_id);
+
+
+    let peer_hand = handshake.shake(&announce.peers[0]).await.expect("TODO: panic message");
+
+    println!("handshake done {:?}", peer_hand);
+
+    let peer_handshake = Handshake::parse(peer_hand);
+
+    println!("handshake done {:?}", peer_handshake);
+
     Ok(())
 }
