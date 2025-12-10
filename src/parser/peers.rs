@@ -5,14 +5,14 @@ use crate::traits::from_bencode::CreateFromBencode;
 
 #[derive(Debug)]
 pub struct Peer {
-    ip_addr: IpAddr,
-    port_number: i64,
+    pub ip_addr: IpAddr,
+    pub port_number: i64,
 }
 
 #[derive(Debug)]
 pub struct AnnounceResponse {
     interval : i32,
-    peers: Vec<Peer>,
+    pub peers: Vec<Peer>,
 }
 
 impl Peer {

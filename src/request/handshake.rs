@@ -1,4 +1,13 @@
-struct Handashake {
+use std::io::Error;
+use tokio::net::TcpStream;
+use tokio::io::{AsyncWriteExt, AsyncReadExt};
+use std::net::SocketAddr;
+use std::time::Duration;
+use tokio::time::timeout;
+use crate::parser::peers::Peer;
+
+#[derive(Debug)]
+pub struct Handshake {
     pstrlen : u8,
     pstr : [u8; 19],
     reserved:[u8; 8],
@@ -9,8 +18,8 @@ struct Handashake {
 // handshake: <pstrlen><pstr><reserved><info_hash><peer_id>
 //1:19:8:20:20
 
-impl Handashake {
-    fn new(info_hash: [u8; 20],peer_id:[u8; 20]) -> Self {
+impl Handshake {
+    pub fn new(info_hash: [u8; 20], peer_id:[u8; 20]) -> Self {
         let p = *b"BitTorrent protocol";
         let plen = p.len() as u8;
         Self {pstrlen : plen , pstr : p,reserved: [0; 8],info_hash,peer_id }
@@ -21,11 +30,11 @@ impl Handashake {
         let mut pstr = [0u8; 19];
         pstr.copy_from_slice(&input_bytes[1..20]);
         let mut reserved = [0u8; 8];
-        reserved.copy_from_slice(&input_bytes[20..29]);
+        reserved.copy_from_slice(&input_bytes[20..28]);
         let mut info_hash = [0u8; 20];
-        info_hash.copy_from_slice(&input_bytes[29..50]);
+        info_hash.copy_from_slice(&input_bytes[28..48]);
         let mut peer_id = [0u8; 20];
-        peer_id.copy_from_slice(&input_bytes[50..71]);
+        peer_id.copy_from_slice(&input_bytes[48..68]);
         Self{pstrlen,pstr,reserved,info_hash,peer_id}
     }
 
@@ -42,6 +51,26 @@ impl Handashake {
         out[pos..pos+self.peer_id.len()].copy_from_slice(&self.peer_id);
         pos += self.peer_id.len();
         out
+    }
+
+    pub async fn shake(self, peer: &Peer) -> Result<[u8; 68], Error>{
+        let socket = SocketAddr::new(peer.ip_addr, peer.port_number as u16);
+        let mut stream = timeout(
+            Duration::from_secs(5),
+            TcpStream::connect(socket)
+        ).await??;
+        let data = self.to_bytes();
+        stream.write_all(&data).await?;
+        let mut buf = [0u8; 68];
+        let n = stream.read(&mut buf).await?;
+        if n > 0 {
+            Ok(buf)
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "peer closed connection without sending handshake, buff looks empty",
+            ))
+        }
     }
 }
 
