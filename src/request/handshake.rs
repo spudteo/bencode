@@ -74,13 +74,3 @@ impl Handshake {
     }
 }
 
-
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//
-//     #[test]
-//     fn bencode_parse_integer() {
-//
-//     }
-// }
