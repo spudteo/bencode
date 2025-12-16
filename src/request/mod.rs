@@ -1,2 +1,4 @@
 pub mod handshake;
-mod message;
+pub mod message;
+pub mod client;
+pub mod torrent_message;

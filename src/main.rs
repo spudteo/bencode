@@ -7,6 +7,7 @@ use clap::Parser;
 use crate::parser::bencode::parse_bencode;
 use crate::parser::torrent_file::TorrentFile;
 use crate::parser::peers::AnnounceResponse;
+use crate::request::client::Client;
 use crate::traits::from_bencode::CreateFromBencode;
 use crate::request::handshake::Handshake;
 
@@ -35,19 +36,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let announce = AnnounceResponse::parse(&announce_response.0);
     println!("{:?}", announce);
 
-    for peer in &announce.peers {
-        let peer_id = *b"01234567890123456789";
-        let handshake = Handshake::new(torrent.info_hash, peer_id);
-        let peer_hand_result = handshake.shake(peer).await;
-        match peer_hand_result {
-            Ok(peer_hand) => {
-                println!("handshake done {:?}", peer_hand);
-                let peer_handshake = Handshake::parse(peer_hand);
-                println!("handshake done {:?}", peer_handshake);
-            }
-            Err(e) => continue
-        }
-    }
+    //185.111.109.15, port_number: 38915
+    //ip_addr: 185.239.193.44, port_number: 12765
+
+    let one_client = Client::new(torrent,announce.peers[0]);
+    one_client.download_from_peer(3).await?;
+
+    // for peer in &announce.peers {
+    //     let peer_id = *b"01234567890123456789";
+    //     let handshake = Handshake::new(torrent.info_hash, peer_id);
+    //     let peer_hand_result = handshake.shake(peer).await;
+    //     match peer_hand_result {
+    //         Ok(peer_hand) => {
+    //             println!("handshake done {:?}", peer_hand);
+    //             let peer_handshake = Handshake::parse(peer_hand);
+    //             println!("handshake done {:?}", peer_handshake);
+    //         }
+    //         Err(e) => continue
+    //     }
+    // }
 
     Ok(())
 }

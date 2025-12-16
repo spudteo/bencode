@@ -36,7 +36,7 @@ impl TryFrom<u8> for MessageID {
     }
 }
 
-struct Message {
+pub struct Message {
     length: u32,
     message_id: Option<MessageID>, //keep alive has no message id
     payload : Option<Vec<u8>>
@@ -51,7 +51,7 @@ pub enum ParseError {
     EmptyBitfield,
 }
 
-struct Bitfield {
+pub struct Bitfield {
     piece_index : Vec<u8>
 }
 
@@ -101,7 +101,6 @@ impl Message {
         if input_stream.len() < 4 {
             panic!("the message is too short, it doesn't have at least 4 bytes");
         }
-        let i =4 ;
         let message_length = u32::from_be_bytes(input_stream[0..4].try_into().unwrap());
 
         match message_length {

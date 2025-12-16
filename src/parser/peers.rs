@@ -3,7 +3,7 @@ use url::Host::Ipv4;
 use crate::parser::bencode::BencodeValue;
 use crate::traits::from_bencode::CreateFromBencode;
 
-#[derive(Debug)]
+#[derive(Debug,Copy, Clone)]
 pub struct Peer {
     pub ip_addr: IpAddr,
     pub port_number: i64,
