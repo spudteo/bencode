@@ -11,6 +11,7 @@ use crate::request::handshake::Handshake;
 
 use thiserror::Error;
 use tokio::time::error::Elapsed;
+use crate::request::message::Message;
 use crate::request::torrent_message::TorrentMessage;
 
 #[derive(Debug, Error)]
@@ -18,11 +19,12 @@ pub enum ClientError {
 
     #[error("problem with handshake")]
     Handshake,
-
     #[error("connection timeout")]
     Timeout,
     #[error("input non valido: {0}")]
     InvalidInput(String),
+    #[error("Peer doesen't have the block id {0}")]
+    BlockNotPresent(usize),
     #[error(transparent)]
     Io(#[from] std::io::Error),
 }
@@ -64,7 +66,49 @@ impl Client {
     }
 
 
-    pub async fn download_from_peer(self,piece_id: u32) -> Result<Vec<u8>, ClientError> {
+    // async fn make_request_for_block() -> Result<Vec<u8>, ClientError> {
+    //
+    // }
+
+
+    async fn message_handler(stream : &mut TcpStream,piece_id: u32,bitfield :&mut Vec<u8>, chocked: & mut bool) -> Result<Vec<u8>, ClientError> {
+        loop {
+            let mut init_buf = [0u8; 4];
+            let n = stream.read(&mut init_buf).await?;
+            let message_length = match n == 4 {
+                true => u32::from_be_bytes(init_buf[0..4].try_into().unwrap()) as usize,
+                false => 0,
+            };
+            let mut message_buf = vec![0u8; message_length];
+            stream.read_exact(&mut message_buf).await?;
+            let message = TorrentMessage::read(&message_buf);
+            println!("{:?}", message);
+            if bitfield.len() > 1 && *chocked {
+                return Ok(vec![45])
+            }
+            match message {
+                TorrentMessage::KeepAlive =>continue,
+                TorrentMessage::Bitfield { bitfield: received } => {
+                    match bitfield.len() > 1 { 
+                        true => continue,
+                        false => *bitfield = received
+                    }
+                },
+                TorrentMessage::Piece { index, begin, block } => {
+                    return Ok(block)
+                }
+                TorrentMessage::Unchoke => { 
+                    println!("unchoked by the server");
+                    *chocked = false },
+                TorrentMessage::Choke => { 
+                    println!("Choked by the server");
+                    *chocked = true },
+                _ => {}
+            }
+        }
+}
+
+pub async fn download_from_peer(self, piece_id: u32) -> Result<Vec<u8>, ClientError> {
         //create tcp connection
         let socket = SocketAddr::new(self.peer.ip_addr, self.peer.port_number as u16);
         let mut stream = timeout(
@@ -76,20 +120,9 @@ impl Client {
         if !Client::handshake_done(&mut stream, handshake).await? {
             return Err(ClientError::Handshake);
         }
-        let mut init_buf = [0u8; 4];
-        let n = stream.read(&mut init_buf).await?;
-        let message_length = match n == 4 {
-            true => u32::from_be_bytes(init_buf[0..4].try_into().unwrap()) as usize,
-            false => 0,
-        };
-        let mut message_buf = vec![0u8; message_length];
-        stream.read_exact(&mut message_buf).await?;
-        let message = TorrentMessage::read(&message_buf);
-        println!("{:?}", message);
-        match message {
-            TorrentMessage::Bitfield {bitfield} => Ok(bitfield),
-            _ => Err(ClientError::InvalidInput("invalid torrent message it is not a bitfield message".to_string())),
-        }
+        let mut bitfield : Vec<u8> = Vec::new();
+        Self::message_handler(&mut stream, piece_id,&mut bitfield, &mut true).await
+
     }
 
 

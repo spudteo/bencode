@@ -40,7 +40,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     //ip_addr: 185.239.193.44, port_number: 12765
 
     let one_client = Client::new(torrent,announce.peers[0]);
-    one_client.download_from_peer(3).await?;
+    let piece_received = one_client.download_from_peer(3).await?;
+    println!("{:?}", piece_received);
 
     // for peer in &announce.peers {
     //     let peer_id = *b"01234567890123456789";

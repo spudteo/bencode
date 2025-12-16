@@ -10,6 +10,11 @@ pub enum TorrentMessage {
         index: u32,
         begin: u32,
         block: Vec<u8>,
+    },
+    Request {
+        index: u32,
+        begin: u32,
+        length: u32,
     }
 }
 
