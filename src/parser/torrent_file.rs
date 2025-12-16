@@ -12,8 +12,8 @@ pub struct TorrentFile{
     pub announce : String,
     name : String,
     length : i64,
-    piece_length : i64,
-    pieces: Vec<[u8;20]>,
+    pub piece_length : i64,
+    pub pieces: Vec<[u8;20]>,
     pub info_hash : [u8; 20],
 }
 

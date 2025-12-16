@@ -1,5 +1,22 @@
 use crate::request::message::Message;
 
+
+
+#[derive(Debug)]
+#[derive(PartialEq)]
+enum MessageID {
+    Choke = 0,
+    Unchoke = 1,
+    Interested = 2,
+    NotInterested = 3,
+    Have = 4,
+    Bitfield = 5,
+    Request = 6,
+    Piece = 7,
+    Cancel = 8,
+    Port = 9
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TorrentMessage {
     KeepAlive,
@@ -28,11 +45,34 @@ impl TorrentMessage {
             0 => TorrentMessage::Choke,
             1 => TorrentMessage::Unchoke,
             5 => TorrentMessage::Bitfield {bitfield: input_stream[1..].to_vec()},
-            7 => TorrentMessage::Piece {index : u32::from_be_bytes(input_stream[0..4].try_into().unwrap()),
-                                            begin: u32::from_be_bytes(input_stream[4..8].try_into().unwrap()),
-                                            block: input_stream[8..].to_vec()},
+            7 => TorrentMessage::Piece {index : u32::from_be_bytes(input_stream[1..5].try_into().unwrap()),
+                                            begin: u32::from_be_bytes(input_stream[5..9].try_into().unwrap()),
+                                            block: input_stream[9..].to_vec()},
             _ => panic!("invalid torrent message received") //fix me
             }
+    }
+
+
+    pub fn to_bytes(&self) -> Vec<u8> {
+        match self {
+            TorrentMessage::Request { index, begin, length } => {
+                let mut out = Vec::with_capacity(17);
+
+                // length prefix  13
+                out.extend_from_slice(&13u32.to_be_bytes());
+
+                // message id
+                out.push(MessageID::Request as u8);
+
+                // payload
+                out.extend_from_slice(&index.to_be_bytes());
+                out.extend_from_slice(&begin.to_be_bytes());
+                out.extend_from_slice(&length.to_be_bytes());
+
+                out
+            }
+            _ => Vec::new(),
+        }
     }
 
 

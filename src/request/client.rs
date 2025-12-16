@@ -7,6 +7,7 @@ use tokio::time::timeout;
 use crate::parser::peers::Peer;
 use crate::parser::torrent_file::TorrentFile;
 use crate::request::handshake::Handshake;
+use sha1::{Digest, Sha1};
 
 
 use thiserror::Error;
@@ -16,7 +17,8 @@ use crate::request::torrent_message::TorrentMessage;
 
 #[derive(Debug, Error)]
 pub enum ClientError {
-
+    #[error("the piece downloaded has a different hash than expected")]
+    CorruptedPiece,
     #[error("problem with handshake")]
     Handshake,
     #[error("connection timeout")]
@@ -66,13 +68,27 @@ impl Client {
     }
 
 
-    // async fn make_request_for_block() -> Result<Vec<u8>, ClientError> {
-    //
-    // }
+    async fn make_request_for_block(stream : &mut TcpStream,index : usize, bytes_already_read: usize) -> Result<(), ClientError> {
+        let payload_length = 16384;
+        let request = TorrentMessage::Request{index: index as u32,begin : bytes_already_read as u32,length: payload_length}.to_bytes();
+        println!("request done : {:?}", request);
+        let write= stream.write_all(&request).await;
+        match write {
+            Ok(_) => Ok(()),
+            Err(e) => { return Err(ClientError::Io(e)); }
+        }
+    }
 
 
-    async fn message_handler(stream : &mut TcpStream,piece_id: u32,bitfield :&mut Vec<u8>, chocked: & mut bool) -> Result<Vec<u8>, ClientError> {
+    async fn message_handler(&self, stream : &mut TcpStream,piece_id: u32,bitfield :&mut Vec<u8>, chocked: & mut bool) -> Result<Vec<u8>, ClientError> {
+        let mut bytes_downloaded : Vec<u8> = Vec::new();
         loop {
+            if bytes_downloaded.len() == self.torrent_file.piece_length as usize {
+                return Ok((*bytes_downloaded).to_owned())
+            }
+            if bitfield.len() > 1 && !*chocked {
+                Self::make_request_for_block(stream,piece_id as usize,bytes_downloaded.len()).await?;
+            }
             let mut init_buf = [0u8; 4];
             let n = stream.read(&mut init_buf).await?;
             let message_length = match n == 4 {
@@ -82,25 +98,24 @@ impl Client {
             let mut message_buf = vec![0u8; message_length];
             stream.read_exact(&mut message_buf).await?;
             let message = TorrentMessage::read(&message_buf);
-            println!("{:?}", message);
-            if bitfield.len() > 1 && *chocked {
-                return Ok(vec![45])
-            }
             match message {
                 TorrentMessage::KeepAlive =>continue,
                 TorrentMessage::Bitfield { bitfield: received } => {
-                    match bitfield.len() > 1 { 
+                    match bitfield.len() > 1 {
                         true => continue,
-                        false => *bitfield = received
+                        false => {
+                            println!("received bitfield");
+                            *bitfield = received }
                     }
                 },
                 TorrentMessage::Piece { index, begin, block } => {
-                    return Ok(block)
+                    println!("received piece.. {:?}, {:?}", index, begin);
+                    bytes_downloaded.extend(block)
                 }
-                TorrentMessage::Unchoke => { 
+                TorrentMessage::Unchoke => {
                     println!("unchoked by the server");
                     *chocked = false },
-                TorrentMessage::Choke => { 
+                TorrentMessage::Choke => {
                     println!("Choked by the server");
                     *chocked = true },
                 _ => {}
@@ -108,7 +123,15 @@ impl Client {
         }
 }
 
-pub async fn download_from_peer(self, piece_id: u32) -> Result<Vec<u8>, ClientError> {
+fn piece_hash_is_correct(piece: &Vec<u8>, checksum : [u8; 20]) -> bool {
+    let mut hasher = Sha1::new();
+    hasher.update(&piece);
+    let hash = hasher.finalize();
+    let hash_value : [u8; 20] = hash.try_into().unwrap();
+    hash_value == checksum
+}
+
+pub async fn download_from_peer(&self, piece_id: u32) -> Result<Vec<u8>, ClientError> {
         //create tcp connection
         let socket = SocketAddr::new(self.peer.ip_addr, self.peer.port_number as u16);
         let mut stream = timeout(
@@ -121,8 +144,12 @@ pub async fn download_from_peer(self, piece_id: u32) -> Result<Vec<u8>, ClientEr
             return Err(ClientError::Handshake);
         }
         let mut bitfield : Vec<u8> = Vec::new();
-        Self::message_handler(&mut stream, piece_id,&mut bitfield, &mut true).await
+        let piece = Self::message_handler(self,&mut stream, piece_id,&mut bitfield, &mut true).await?;
 
+        match Self::piece_hash_is_correct(&piece,self.torrent_file.pieces[piece_id as usize]) {
+            true => Ok(piece),
+            false => Err(ClientError::CorruptedPiece)
+        }
     }
 
 
