@@ -76,34 +76,41 @@ impl PeerStream {
         let mut downloaded_blocks: Vec<Option<Vec<u8>>> = vec![None; total_request_to_do];
         let mut missing_block: HashSet<usize> = HashSet::with_capacity(total_request_to_do);
         missing_block.extend(0..total_request_to_do);
-        println!("missing block {:?}", missing_block);
-
         loop {
             //exit the loop if all the blocks have been downloaded for the piece
             if missing_block.is_empty() {
                 return Ok((piece_id,Self::build_piece_from_blocks(self, &mut downloaded_blocks)));
             }
             Self::make_request_for_block(&mut self.stream, piece_id, &mut missing_block).await?;
+            //keep reading for 2 second straith than remake request until we have downloaded all pieces
+            let _ = tokio::time::timeout(Duration::from_secs(2), async {
+                loop{
+                    if missing_block.is_empty(){
+                        break;
+                    }
+                    match Self::read_message(&mut self.stream).await {
+                        Ok(msg) => { match msg  {
+                            TorrentMessage::Piece {
+                                index,
+                                begin,
+                                block,
+                            } => {
+                                println!("{} - received piece.. index:{:?}, beign: {:?}", self.id,index, begin);
+                                let block_index = ((begin as usize) / (PAYLOAD_LENGTH as usize));
+                                let was_present = missing_block.remove(&block_index);
+                                if was_present {downloaded_blocks[block_index] = Some(block);}
+                            }
+                            TorrentMessage::KeepAlive => (),
+                            TorrentMessage::Bitfield {..} => (),
+                            TorrentMessage::Choke => (),//fixme should stop making request
+                            _ => {}
+                            }
+                        },
+                        Err(e) => () //fixme dovrebbe ritornare un errore
+                    }
 
-            match Self::read_message(&mut self.stream).await? {
-                TorrentMessage::Piece {
-                    index,
-                    begin,
-                    block,
-                } => {
-                    println!("{} - received piece.. index:{:?}, beign: {:?}", self.id,index, begin);
-                    let block_index = ((begin as usize) / (PAYLOAD_LENGTH as usize));
-                    println!("block index : {:?}", block_index);
-                    println!("pre -missing block: {:?}", missing_block);
-                    let was_present = missing_block.remove(&block_index);
-                    println!("after -missing block: {:?}", missing_block);
-                    if was_present {downloaded_blocks[block_index] = Some(block);}
                 }
-                TorrentMessage::KeepAlive => (),
-                TorrentMessage::Bitfield {..} => (),
-                TorrentMessage::Choke => (),//fixme should stop making request
-                _ => {}
-            }
+            }).await;
         }
     }
 
@@ -143,27 +150,22 @@ impl PeerStream {
         index: usize,
         missing_block: &mut HashSet<usize>,
     ) -> Result<(), ClientError> {
-        // made request for all blocks, then sleep for 1 sec
-        let next_block = missing_block.iter().next();
-        match next_block {
-            Some(block) => {
+        let total_request = 20; //fixme parametric
+        for block in missing_block.iter().take(total_request) {
                 let request = TorrentMessage::Request {
                     index: index as u32,
                     begin: (*block * PAYLOAD_LENGTH as usize) as u32,
                     length: PAYLOAD_LENGTH,
-                }
-                .to_bytes();
-                println!("request begin: {:?}", (*block * PAYLOAD_LENGTH as usize) as u32);
+                }.to_bytes();
                 let write = stream.write_all(&request).await;
                 match write {
-                    Ok(_) => Ok(()),
+                    Ok(_) => (),
                     Err(e) => {
                         return Err(ClientError::Io(e));
                     }
                 }
-            }
-            None => Err(ClientError::BlockNotPresent(index)),
         }
+        Ok(())
     }
 
     fn build_piece_from_blocks(&self, downloaded_blocks: &mut Vec<Option<Vec<u8>>>) -> Vec<u8> {
