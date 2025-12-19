@@ -49,7 +49,7 @@ impl PeerStream {
                     stream: stream,
                     piece_length: torrent_file.piece_length as usize,
                     bitfield: bitfield.unwrap(),
-                    chocked: chocked.unwrap(), //fixme in this way we ca never be choked again
+                    chocked: chocked.unwrap(), //fixme in this way we can never be choked again
                 });
             }
             match Self::read_message(&mut stream).await? {
@@ -82,8 +82,8 @@ impl PeerStream {
                 return Ok((piece_id,Self::build_piece_from_blocks(self, &mut downloaded_blocks)));
             }
             Self::make_request_for_block(&mut self.stream, piece_id, &mut missing_block).await?;
-            //keep reading for 2 second straith than remake request until we have downloaded all pieces
-            let _ = tokio::time::timeout(Duration::from_secs(2), async {
+            //keep reading for 2 second straight, than remake request until we have downloaded all pieces
+            let _ = tokio::time::timeout(Duration::from_millis(1500), async {
                 loop{
                     if missing_block.is_empty(){
                         break;

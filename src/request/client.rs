@@ -78,7 +78,7 @@ impl Client {
         let peer_info = Arc::new(self.peer.clone());
 
         //create peer to download
-        for slave_id in 1..=number_of_peers {
+        for slave_id in 1..= number_of_peers {
             let rx = receiver_work.clone();
             let tx = transmitter_piece.clone();
             let t_file = Arc::clone(&torrent_file);
@@ -115,6 +115,7 @@ impl Client {
         let mut all_pieces = HashSet::with_capacity(number_of_pieces);
         all_pieces.extend(0..number_of_pieces);
 
+        //fix me I already know the dimension of everything here following the torrent
         let mut downloaded_file: Vec<Option<Vec<u8>>> = vec![None; number_of_pieces];
         //send work to slave
         for piece in 0..self.torrent_file.pieces.len() {
@@ -135,7 +136,7 @@ impl Client {
                 println!("Master: Hash fallito per pezzo {}, cosa facciamo?", piece_id);
             }
 
-            if completed_pieces == 50 {
+            if completed_pieces == 1000 {
                 break;
             }
         }
