@@ -15,6 +15,7 @@ use tokio::time::timeout;
 const PAYLOAD_LENGTH: u32 = 16384;
 
 pub struct PeerStream {
+    id : usize,
     stream: TcpStream,
     piece_length: usize,
     bitfield: TorrentMessage,
@@ -23,6 +24,7 @@ pub struct PeerStream {
 
 impl PeerStream {
     pub async fn new(
+        id: usize,
         peer: &Peer,
         torrent_file: &TorrentFile,
         client_peer_id: &[u8; 20],
@@ -43,6 +45,7 @@ impl PeerStream {
             if bitfield.is_some() && chocked.is_some() {
                 println!("Ready for download from peer: {:?}",peer);
                 return Ok(Self {
+                    id:id,
                     stream: stream,
                     piece_length: torrent_file.piece_length as usize,
                     bitfield: bitfield.unwrap(),
@@ -52,11 +55,9 @@ impl PeerStream {
             match Self::read_message(&mut stream).await? {
                 msg => match msg {
                     TorrentMessage::Bitfield { .. } => {
-                        println!("received bitfield");
                         bitfield = Some(msg);
                     }
                     TorrentMessage::Unchoke => {
-                        println!("received unchoked");
                         chocked = Some(false);
                     }
                     _ => continue,
@@ -66,7 +67,7 @@ impl PeerStream {
     }
 
 
-    pub async fn download_piece(&mut self, piece_id : usize) -> Result<(Vec<u8>), ClientError> {
+    pub async fn download_piece(&mut self, piece_id : usize) -> Result<(usize,Vec<u8>), ClientError> {
         if !self.bitfield.source_has_piece(piece_id){
             return Err(ClientError::BlockNotPresent(piece_id))
         }
@@ -75,11 +76,12 @@ impl PeerStream {
         let mut downloaded_blocks: Vec<Option<Vec<u8>>> = vec![None; total_request_to_do];
         let mut missing_block: HashSet<usize> = HashSet::with_capacity(total_request_to_do);
         missing_block.extend(0..total_request_to_do);
+        println!("missing block {:?}", missing_block);
 
         loop {
             //exit the loop if all the blocks have been downloaded for the piece
             if missing_block.is_empty() {
-                return Ok(Self::build_piece_from_blocks(self, &mut downloaded_blocks));
+                return Ok((piece_id,Self::build_piece_from_blocks(self, &mut downloaded_blocks)));
             }
             Self::make_request_for_block(&mut self.stream, piece_id, &mut missing_block).await?;
 
@@ -89,11 +91,17 @@ impl PeerStream {
                     begin,
                     block,
                 } => {
-                    println!("received piece.. {:?}, {:?}", index, begin);
+                    println!("{} - received piece.. index:{:?}, beign: {:?}", self.id,index, begin);
                     let block_index = ((begin as usize) / (PAYLOAD_LENGTH as usize));
-                    missing_block.remove(&block_index);
-                    downloaded_blocks[block_index] = Some(block);
+                    println!("block index : {:?}", block_index);
+                    println!("pre -missing block: {:?}", missing_block);
+                    let was_present = missing_block.remove(&block_index);
+                    println!("after -missing block: {:?}", missing_block);
+                    if was_present {downloaded_blocks[block_index] = Some(block);}
                 }
+                TorrentMessage::KeepAlive => (),
+                TorrentMessage::Bitfield {..} => (),
+                TorrentMessage::Choke => (),//fixme should stop making request
                 _ => {}
             }
         }
@@ -135,17 +143,17 @@ impl PeerStream {
         index: usize,
         missing_block: &mut HashSet<usize>,
     ) -> Result<(), ClientError> {
-        //pick one block, download it, begin is exactly the block length per the index block
+        // made request for all blocks, then sleep for 1 sec
         let next_block = missing_block.iter().next();
         match next_block {
             Some(block) => {
                 let request = TorrentMessage::Request {
                     index: index as u32,
-                    begin: (block * PAYLOAD_LENGTH as usize) as u32,
+                    begin: (*block * PAYLOAD_LENGTH as usize) as u32,
                     length: PAYLOAD_LENGTH,
                 }
                 .to_bytes();
-                println!("request done : {:?}", request);
+                println!("request begin: {:?}", (*block * PAYLOAD_LENGTH as usize) as u32);
                 let write = stream.write_all(&request).await;
                 match write {
                     Ok(_) => Ok(()),
