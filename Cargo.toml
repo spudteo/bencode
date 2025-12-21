@@ -1,7 +1,10 @@
 [package]
 name = "TTorrent"
 version = "0.1.0"
+authors = ["Teo Spadotto <teospadotto@gmail.com>"]
+description = "my client for downloading torrent file"
 edition = "2024"
+
 
 [dependencies]
 regex = "1.12.2"
