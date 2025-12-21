@@ -18,6 +18,7 @@ use tokio::time::error::Elapsed;
 use crate::request::peer_stream::PeerStream;
 use async_channel::{unbounded, Receiver, Sender};
 use tokio::time::sleep;
+use log::{info, error, debug};
 
 const PAYLOAD_LENGTH: u32 = 16384;
 
@@ -28,7 +29,7 @@ pub enum ClientError {
     #[error("the piece downloaded has a different hash than expected")]
     CorruptedPiece,
     #[error("problem with handshake")]
-    Handshake,
+    HandshakeFailed,
     #[error("connection timeout")]
     Timeout,
     #[error("input non valido: {0}")]
@@ -38,7 +39,9 @@ pub enum ClientError {
     #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error("Peer doesn't have the piece id  {0}")]
-    PieceNotPresent(usize)
+    PieceNotPresent(usize),
+    #[error("Handshake of the server was not the one we expected")]
+    ServerDoesntHaveFile
 }
 
 impl From<Elapsed> for ClientError {
@@ -134,7 +137,7 @@ impl Client {
                 break;
             }
             if Self::piece_hash_is_correct(&data, self.torrent_file.pieces[piece_id]) {
-                println!("Master: ricevuto pezzo {}", piece_id);
+                info!("Received piece number: {}", piece_id);
                 downloaded_file[piece_id] = Some(data);
                 completed_pieces += 1;
             } else {

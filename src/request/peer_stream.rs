@@ -11,6 +11,8 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
+use log::{info, error, debug};
+use crate::request::client::ClientError::{HandshakeFailed, ServerDoesntHaveFile};
 
 const PAYLOAD_LENGTH: u32 = 16384;
 const MAX_REQUEST_FOR_PIECE: usize = 20;
@@ -34,16 +36,14 @@ impl PeerStream {
         let mut stream = timeout(Duration::from_secs(5), TcpStream::connect(socket)).await??;
         //handshake
         let handshake = Handshake::new(torrent_file.info_hash, client_peer_id);
-        if !Self::handshake(&mut stream, handshake).await? {
-            return Err(ClientError::Handshake);
-        }
+        Self::make_handshake(&mut stream, &handshake).await?;
 
         //looping until we saw a bitfield and we are unchoked
         let mut bitfield: Option<TorrentMessage> = None;
         let mut chocked: Option<bool> = None;
         loop {
             if bitfield.is_some() && chocked.is_some() {
-                println!("Ready for download from peer: {:?}",peer);
+                debug!("Ready for download from peer: {:?}",peer);
                 return Ok(Self {
                     id:id,
                     stream: stream,
@@ -94,7 +94,7 @@ impl PeerStream {
                                 begin,
                                 block,
                             } => {
-                                println!("{} - received piece.. index:{:?}, beign: {:?}", self.id,index, begin);
+                                debug!("{} - received piece.. index:{:?}, beign: {:?}", self.id,index, begin);
                                 let block_index = ((begin as usize) / (PAYLOAD_LENGTH as usize));
                                 let was_present = missing_block.remove(&block_index);
                                 if was_present {downloaded_blocks[block_index] = Some(block);}
@@ -122,19 +122,19 @@ impl PeerStream {
         Ok(TorrentMessage::read(&message_buf))
     }
 
-    async fn handshake(stream: &mut TcpStream, handshake: Handshake) -> Result<bool, Error> {
+    async fn make_handshake(stream: &mut TcpStream, handshake: &Handshake) -> Result<(), ClientError> {
         let data = handshake.to_bytes();
         stream.write_all(&data).await?;
         let mut buf = [0u8; 68];
         let n = stream.read(&mut buf).await?;
         if n > 0 {
-            Ok(true)
-            //FIXME check that handshake is exactly what we have rquest comapring the hash
+            let received_handshake = Handshake::parse(buf);
+            if received_handshake.info_hash != handshake.info_hash {
+                return Err(ServerDoesntHaveFile)
+            }
+            Ok(())
         } else {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::UnexpectedEof,
-                "peer closed connection without sending handshake, buff looks empty",
-            ))
+            Err(HandshakeFailed)
         }
     }
     async fn make_request_for_block(

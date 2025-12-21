@@ -10,6 +10,7 @@ use crate::request::handshake::Handshake;
 use crate::traits::from_bencode::CreateFromBencode;
 use clap::Parser;
 use std::fs;
+use log::info;
 use tokio::time::Instant;
 
 #[derive(Parser, Debug)]
@@ -21,13 +22,14 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     let args = Args::parse();
     let bencode_byte = fs::read(&args.file)?;
 
     let bencode_input = parse_bencode(&bencode_byte);
     let torrent =
         TorrentFile::new_from_bencode(&bencode_input.0).expect("Failed to parse TorrentFile");
-    println!("requesting peers...");
+    log::info!("requesting peers...");
     let response = reqwest::get(torrent.build_tracker_url()?).await?;
     let body_bytes = response.bytes().await?;
     let announce_response = parse_bencode(&body_bytes);
