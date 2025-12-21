@@ -9,8 +9,8 @@ use crate::request::client::Client;
 use crate::request::handshake::Handshake;
 use crate::traits::from_bencode::CreateFromBencode;
 use clap::Parser;
-use std::fs;
 use log::info;
+use std::fs;
 use tokio::time::Instant;
 
 #[derive(Parser, Debug)]
@@ -35,7 +35,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let announce_response = parse_bencode(&body_bytes);
     let announce = AnnounceResponse::parse(&announce_response.0);
     println!("{:?}", announce);
-
 
     let max_peer = announce.peers.len();
     let one_client = Client::new(torrent, announce.peers);

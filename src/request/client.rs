@@ -11,13 +11,13 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
 
+use crate::request::peer_stream::PeerStream;
 use crate::request::torrent_message::TorrentMessage;
+use async_channel::{Receiver, Sender, unbounded};
+use log::{debug, error, info};
 use thiserror::Error;
 use tokio::time::error::Elapsed;
-use crate::request::peer_stream::PeerStream;
-use async_channel::{unbounded, Receiver, Sender};
 use tokio::time::sleep;
-use log::{info, error, debug};
 
 const PAYLOAD_LENGTH: u32 = 16384;
 
@@ -40,7 +40,7 @@ pub enum ClientError {
     #[error("Peer doesn't have the piece id  {0}")]
     PieceNotPresent(usize),
     #[error("Handshake of the server was not the one we expected")]
-    ServerDoesntHaveFile
+    ServerDoesntHaveFile,
 }
 
 impl From<Elapsed> for ClientError {
@@ -73,16 +73,19 @@ impl Client {
         hash_value == checksum
     }
 
-    pub async fn download_torrent(&self, number_of_peers_downloader: usize) -> Result<Vec<u8>, ClientError> {
+    pub async fn download_torrent(
+        &self,
+        number_of_peers_downloader: usize,
+    ) -> Result<Vec<u8>, ClientError> {
         let (transmitter_work, receiver_work) = unbounded::<usize>();
-        let (transmitter_piece, receiver_piece) = unbounded::<(usize,Vec<u8>)>();
+        let (transmitter_piece, receiver_piece) = unbounded::<(usize, Vec<u8>)>();
         //fixme investigate arc
         let torrent_file = Arc::new(self.torrent_file.clone());
         let client_id = Arc::new(self.client_peer_id.clone());
         let peer_info = Arc::new(self.peer.clone());
 
         //create peer to download
-        for slave_id in 1..= number_of_peers_downloader {
+        for slave_id in 1..=number_of_peers_downloader {
             let r_work = receiver_work.clone();
             let t_piece = transmitter_piece.clone();
             let t_work = transmitter_work.clone();
@@ -92,7 +95,8 @@ impl Client {
 
             tokio::spawn(async move {
                 println!("Creating slave downloader {} ", slave_id);
-                let mut peer_stream = PeerStream::new(slave_id,&p_info[slave_id], &t_file, &c_id).await;
+                let mut peer_stream =
+                    PeerStream::new(slave_id, &p_info[slave_id], &t_file, &c_id).await;
                 match peer_stream {
                     Ok(mut stream) => {
                         //keep reading if there is work to do
@@ -101,7 +105,7 @@ impl Client {
                             match downloaded_piece {
                                 Ok(piece) => {
                                     let _ = t_piece.send(piece).await;
-                                },
+                                }
                                 _ => {
                                     //if it was unable to download the piece, put back the work in the queue
                                     t_work.send(piece_id).await;
@@ -121,7 +125,7 @@ impl Client {
         let mut all_pieces = HashSet::with_capacity(number_of_pieces);
         all_pieces.extend(0..number_of_pieces);
 
-        //fix me I already know the dimension of everything here following the torrent
+        //fixme I already know the dimension of everything here following the torrent
         let mut downloaded_file: Vec<Option<Vec<u8>>> = vec![None; number_of_pieces];
         //send work to slave
         for piece in 0..self.torrent_file.pieces.len() {
@@ -146,6 +150,4 @@ impl Client {
         }
         Ok(downloaded_file.into_iter().flatten().flatten().collect())
     }
-
-
 }
