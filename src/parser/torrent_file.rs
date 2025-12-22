@@ -35,21 +35,41 @@ impl TorrentInfo {
 #[derive(Debug, Clone,Deserialize, Serialize)]
 pub struct TorrentFile {
     announce: Option<String>,
+    announce_list: Option<Vec<Vec<String>>>,
     comment: Option<String>,
     pub info : TorrentInfo
 }
 
 impl TorrentFile {
 
-    pub fn build_tracker_url(&self) -> Result<String, Box<dyn std::error::Error>> {
-        let mut url = Url::parse(self.announce.as_ref().unwrap())?;
+    //fixme refactor duplicate code
+    pub fn build_tracker_url(&self) -> Result<Vec<String> , Box<dyn std::error::Error>> {
+
+        let mut all_tracker_urls: Vec<String> = vec![];
         let info_hash_encoded = percent_encode(&self.compute_info_hash(), NON_ALPHANUMERIC).to_string();
-        let query = format!(
-            "info_hash={}&peer_id={}",
-            info_hash_encoded, "01234567890123456789"
-        );
-        url.set_query(Some(&query));
-        Ok(url.to_string())
+
+        if self.announce.is_some() {
+            let query = format!(
+                "info_hash={}&peer_id={}",
+                info_hash_encoded, "01234567890123456789"
+            );
+            let mut url = Url::parse(self.announce.as_ref().unwrap())?;
+            url.set_query(Some(&query));
+            all_tracker_urls.push(url.to_string());
+        }
+        else if self.announce_list.is_some() {
+            for i in self.announce_list.as_ref().unwrap().iter().flatten() {
+                let query = format!(
+                    "info_hash={}&peer_id={}",
+                    info_hash_encoded, "01234567890123456789"
+                );
+                let mut url = Url::parse(i)?;
+                url.set_query(Some(&query));
+                all_tracker_urls.push(url.to_string());
+            }
+        }
+
+        Ok(all_tracker_urls)
     }
 
     pub fn compute_info_hash(&self) -> [u8; 20] {
