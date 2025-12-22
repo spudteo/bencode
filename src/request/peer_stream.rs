@@ -33,7 +33,7 @@ impl PeerStream {
         let socket = SocketAddr::new(peer.ip_addr, peer.port_number as u16);
         let mut stream = timeout(Duration::from_secs(5), TcpStream::connect(socket)).await??;
         //handshake
-        let handshake = Handshake::new(torrent_file.info_hash, client_peer_id);
+        let handshake = Handshake::new(torrent_file.compute_info_hash(), client_peer_id);
         Self::make_handshake(&mut stream, &handshake).await?;
 
         //looping until we saw a bitfield and we are unchoked
@@ -45,7 +45,7 @@ impl PeerStream {
                 return Ok(Self {
                     id: id,
                     stream: stream,
-                    piece_length: torrent_file.piece_length as usize,
+                    piece_length: torrent_file.info.piece_length as usize,
                     bitfield: bitfield.unwrap(),
                 });
             }

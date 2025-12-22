@@ -3,7 +3,7 @@ pub struct Handshake {
     pstrlen: u8,
     pstr: [u8; 19],
     reserved: [u8; 8],
-    pub info_hash: [u8; 20],
+    pub info_hash: [u8; 20], //fixme why pub ?
     peer_id: [u8; 20],
 }
 

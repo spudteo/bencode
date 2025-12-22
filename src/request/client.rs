@@ -120,16 +120,17 @@ impl Client {
             });
         }
 
-        let number_of_pieces = self.torrent_file.pieces.len();
+        let pieces = self.torrent_file.info.get_divided_pieces();
+        let number_of_pieces = pieces.len();
         let mut all_pieces = HashSet::with_capacity(number_of_pieces);
         all_pieces.extend(0..number_of_pieces);
 
         //fixme I already know the dimension of everything here following the torrent, i JUST NEED
         //to store the dimension of a flush, in order to save memory
         let mut downloaded_file: HashMap<usize, Vec<u8>> = HashMap::with_capacity(number_of_pieces);
-        let file_dimension = number_of_pieces as u64 * self.torrent_file.piece_length as u64;
+        let file_dimension = number_of_pieces as u64 * self.torrent_file.info.piece_length as u64;
         let mut persisted_file =
-            TorrentPersisted::new(&self.torrent_file.name, file_dimension).await?;
+            TorrentPersisted::new(&self.torrent_file.info.name, file_dimension).await?;
 
         //send work to slave reading from  checkpoint
         let mut piece_to_download: HashSet<usize> = HashSet::with_capacity(number_of_pieces);
@@ -154,11 +155,11 @@ impl Client {
         info! {"completed pieces {}", completed_pieces}
 
         loop {
-            if completed_pieces == self.torrent_file.pieces.len() {
+            if completed_pieces == pieces.len() {
                 persisted_file
                     .write_pieces(
                         &mut downloaded_file,
-                        self.torrent_file.piece_length as usize,
+                        self.torrent_file.info.piece_length as usize,
                     )
                     .await?;
                 break;
@@ -166,19 +167,19 @@ impl Client {
 
             let received_piece = receiver_piece.recv().await?;
             info! {"completed pieces {}", completed_pieces}
-            info! {"asd {}", self.torrent_file.pieces.len()}
+            info! {"asd {}", pieces.len()}
 
             if completed_pieces % 100 == 0 {
                 persisted_file
                     .write_pieces(
                         &mut downloaded_file,
-                        self.torrent_file.piece_length as usize,
+                        self.torrent_file.info.piece_length as usize,
                     )
                     .await?;
             }
             if Self::piece_hash_is_correct(
                 &received_piece.1,
-                self.torrent_file.pieces[received_piece.0],
+                pieces[received_piece.0],
             ) {
                 info!("Received piece number: {}", received_piece.0);
                 downloaded_file.insert(received_piece.0, received_piece.1.clone());
