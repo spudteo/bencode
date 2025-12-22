@@ -1,21 +1,17 @@
-use std::collections::HashMap;
 use percent_encoding::{NON_ALPHANUMERIC, percent_encode};
 use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
 use url::Url;
 
-
-
-#[derive(Debug, Clone,Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TorrentInfo {
     pub name: String,
-    length : usize,
+    length: usize,
     #[serde(rename = "piece length")]
     pub piece_length: usize,
     #[serde(with = "serde_bytes")]
-    pieces: Vec<u8>
+    pieces: Vec<u8>,
 }
-
 
 impl TorrentInfo {
     //fixme this function is copying data
@@ -32,21 +28,20 @@ impl TorrentInfo {
     }
 }
 
-#[derive(Debug, Clone,Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TorrentFile {
     announce: Option<String>,
     announce_list: Option<Vec<Vec<String>>>,
     comment: Option<String>,
-    pub info : TorrentInfo
+    pub info: TorrentInfo,
 }
 
 impl TorrentFile {
-
     //fixme refactor duplicate code
-    pub fn build_tracker_url(&self) -> Result<Vec<String> , Box<dyn std::error::Error>> {
-
+    pub fn build_tracker_url(&self) -> Result<Vec<String>, Box<dyn std::error::Error>> {
         let mut all_tracker_urls: Vec<String> = vec![];
-        let info_hash_encoded = percent_encode(&self.compute_info_hash(), NON_ALPHANUMERIC).to_string();
+        let info_hash_encoded =
+            percent_encode(&self.compute_info_hash(), NON_ALPHANUMERIC).to_string();
 
         if self.announce.is_some() {
             let query = format!(
@@ -56,8 +51,7 @@ impl TorrentFile {
             let mut url = Url::parse(self.announce.as_ref().unwrap())?;
             url.set_query(Some(&query));
             all_tracker_urls.push(url.to_string());
-        }
-        else if self.announce_list.is_some() {
+        } else if self.announce_list.is_some() {
             for i in self.announce_list.as_ref().unwrap().iter().flatten() {
                 let query = format!(
                     "info_hash={}&peer_id={}",
@@ -79,5 +73,4 @@ impl TorrentFile {
         let hash = hasher.finalize();
         hash.into()
     }
-
 }

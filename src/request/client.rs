@@ -1,4 +1,4 @@
-use crate::parser::peers::{AnnounceResponse, Peer};
+use crate::parser::peers::AnnounceResponse;
 use crate::parser::torrent_file::TorrentFile;
 use sha1::{Digest, Sha1};
 use std::collections::{HashMap, HashSet};
@@ -8,7 +8,7 @@ use std::sync::Arc;
 use crate::request::peer_stream::PeerStream;
 use crate::request::storage::TorrentPersisted;
 use async_channel::{RecvError, unbounded};
-use log::{debug, error, info};
+use log::{error, info};
 use thiserror::Error;
 use tokio::time::error::Elapsed;
 
@@ -53,7 +53,6 @@ impl From<async_channel::RecvError> for ClientError {
     }
 }
 
-
 pub struct Client {
     torrent_file: TorrentFile,
     client_peer_id: [u8; 20],
@@ -62,7 +61,7 @@ pub struct Client {
 impl Client {
     pub fn new(bencode_byte: &[u8]) -> Client {
         let client_per_id = *b"01234567890123456789";
-        let torrent_file : TorrentFile = serde_bencode::from_bytes(&bencode_byte).unwrap();
+        let torrent_file: TorrentFile = serde_bencode::from_bytes(&bencode_byte).unwrap();
         Self {
             torrent_file,
             client_peer_id: client_per_id,
@@ -70,18 +69,25 @@ impl Client {
     }
 
     async fn find_peer(&self) -> Result<Vec<SocketAddr>, ClientError> {
-        let all_tracker = self.torrent_file.build_tracker_url().map_err(|e| ClientError::CannotFetchPeers(e.to_string()))?;;
-        let mut all_peer : Vec<SocketAddr> = vec![];
+        let all_tracker = self
+            .torrent_file
+            .build_tracker_url()
+            .map_err(|e| ClientError::CannotFetchPeers(e.to_string()))?;
+        let mut all_peer: Vec<SocketAddr> = vec![];
 
         for tracker in all_tracker {
-            let response = reqwest::get(tracker).await.map_err(|e| ClientError::CannotFetchPeers(e.to_string()))?;;
-            let body_bytes = response.bytes().await.map_err(|e| ClientError::CannotFetchPeers(e.to_string()))?;;
+            let response = reqwest::get(tracker)
+                .await
+                .map_err(|e| ClientError::CannotFetchPeers(e.to_string()))?;
+            let body_bytes = response
+                .bytes()
+                .await
+                .map_err(|e| ClientError::CannotFetchPeers(e.to_string()))?;
             let announce: AnnounceResponse = serde_bencode::from_bytes(&body_bytes).unwrap();
             all_peer.extend(announce.get_peers())
         }
 
         Ok(all_peer)
-
     }
 
     fn piece_hash_is_correct(piece: &Vec<u8>, checksum: [u8; 20]) -> bool {
@@ -92,10 +98,7 @@ impl Client {
         hash_value == checksum
     }
 
-    pub async fn download_torrent(
-        &self,
-    ) -> Result<(), ClientError> {
-
+    pub async fn download_torrent(&self) -> Result<(), ClientError> {
         let peer = self.find_peer().await?;
         let number_of_peers_downloader = peer.len();
         let (transmitter_work, receiver_work) = unbounded::<usize>();
@@ -199,10 +202,7 @@ impl Client {
                     )
                     .await?;
             }
-            if Self::piece_hash_is_correct(
-                &received_piece.1,
-                pieces[received_piece.0],
-            ) {
+            if Self::piece_hash_is_correct(&received_piece.1, pieces[received_piece.0]) {
                 info!("Received piece number: {}", received_piece.0);
                 downloaded_file.insert(received_piece.0, received_piece.1.clone());
                 completed_pieces += 1;

@@ -1,4 +1,3 @@
-use crate::parser::peers::Peer;
 use crate::parser::torrent_file::TorrentFile;
 use crate::request::client::ClientError;
 use crate::request::client::ClientError::{HandshakeFailed, ServerDoesntHaveFile};

@@ -2,14 +2,10 @@ mod parser;
 mod request;
 mod traits;
 
-use crate::parser::bencode::parse_bencode;
-use crate::parser::peers::AnnounceResponse;
-use crate::parser::torrent_file::{TorrentFile};
 use crate::request::client::Client;
 use crate::traits::from_bencode::CreateFromBencode;
 use clap::Parser;
 use std::fs;
-use tokio::time::Instant;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
