@@ -1,13 +1,14 @@
-use crate::parser::peers::Peer;
+use crate::parser::peers::AnnounceResponse;
 use crate::parser::torrent_file::TorrentFile;
 use sha1::{Digest, Sha1};
 use std::collections::{HashMap, HashSet};
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use crate::request::peer_stream::PeerStream;
 use crate::request::storage::TorrentPersisted;
 use async_channel::{RecvError, unbounded};
-use log::{debug, error, info};
+use log::{error, info};
 use thiserror::Error;
 use tokio::time::error::Elapsed;
 
@@ -15,6 +16,8 @@ const PAYLOAD_LENGTH: u32 = 16384;
 
 #[derive(Debug, Error)]
 pub enum ClientError {
+    #[error("The tracker url is not working")]
+    InvalidTrackerUrl,
     #[error("Couldn't read any data from the peer")]
     NoBytesInStream,
     #[error("the piece downloaded has a different hash than expected")]
@@ -35,6 +38,8 @@ pub enum ClientError {
     ServerDoesntHaveFile,
     #[error("Error in the channel receiver or transmitter")]
     ChannelReceiverError,
+    #[error("Cannot fetch peers: {0}")]
+    CannotFetchPeers(String),
 }
 
 impl From<Elapsed> for ClientError {
@@ -50,18 +55,39 @@ impl From<async_channel::RecvError> for ClientError {
 
 pub struct Client {
     torrent_file: TorrentFile,
-    peer: Vec<Peer>,
     client_peer_id: [u8; 20],
 }
 
 impl Client {
-    pub fn new(torrent_file: TorrentFile, peer: Vec<Peer>) -> Client {
+    pub fn new(bencode_byte: &[u8]) -> Client {
         let client_per_id = *b"01234567890123456789";
+        let torrent_file: TorrentFile = serde_bencode::from_bytes(&bencode_byte).unwrap();
         Self {
             torrent_file,
-            peer,
             client_peer_id: client_per_id,
         }
+    }
+
+    async fn find_peer(&self) -> Result<Vec<SocketAddr>, ClientError> {
+        let all_tracker = self
+            .torrent_file
+            .build_tracker_url()
+            .map_err(|e| ClientError::CannotFetchPeers(e.to_string()))?;
+        let mut all_peer: Vec<SocketAddr> = vec![];
+
+        for tracker in all_tracker {
+            let response = reqwest::get(tracker)
+                .await
+                .map_err(|e| ClientError::CannotFetchPeers(e.to_string()))?;
+            let body_bytes = response
+                .bytes()
+                .await
+                .map_err(|e| ClientError::CannotFetchPeers(e.to_string()))?;
+            let announce: AnnounceResponse = serde_bencode::from_bytes(&body_bytes).unwrap();
+            all_peer.extend(announce.get_peers())
+        }
+
+        Ok(all_peer)
     }
 
     fn piece_hash_is_correct(piece: &Vec<u8>, checksum: [u8; 20]) -> bool {
@@ -72,16 +98,15 @@ impl Client {
         hash_value == checksum
     }
 
-    pub async fn download_torrent(
-        &self,
-        number_of_peers_downloader: usize,
-    ) -> Result<(), ClientError> {
+    pub async fn download_torrent(&self) -> Result<(), ClientError> {
+        let peer = self.find_peer().await?;
+        let number_of_peers_downloader = peer.len();
         let (transmitter_work, receiver_work) = unbounded::<usize>();
         let (transmitter_piece, receiver_piece) = unbounded::<(usize, Vec<u8>)>();
         //fixme investigate arc
         let torrent_file = Arc::new(self.torrent_file.clone());
         let client_id = Arc::new(self.client_peer_id.clone());
-        let peer_info = Arc::new(self.peer.clone());
+        let peer_info = Arc::new(peer.clone());
 
         //create peer to download
         for slave_id in 1..=number_of_peers_downloader {
@@ -120,16 +145,17 @@ impl Client {
             });
         }
 
-        let number_of_pieces = self.torrent_file.pieces.len();
+        let pieces = self.torrent_file.info.get_divided_pieces();
+        let number_of_pieces = pieces.len();
         let mut all_pieces = HashSet::with_capacity(number_of_pieces);
         all_pieces.extend(0..number_of_pieces);
 
         //fixme I already know the dimension of everything here following the torrent, i JUST NEED
         //to store the dimension of a flush, in order to save memory
         let mut downloaded_file: HashMap<usize, Vec<u8>> = HashMap::with_capacity(number_of_pieces);
-        let file_dimension = number_of_pieces as u64 * self.torrent_file.piece_length as u64;
+        let file_dimension = number_of_pieces as u64 * self.torrent_file.info.piece_length as u64;
         let mut persisted_file =
-            TorrentPersisted::new(&self.torrent_file.name, file_dimension).await?;
+            TorrentPersisted::new(&self.torrent_file.info.name, file_dimension).await?;
 
         //send work to slave reading from  checkpoint
         let mut piece_to_download: HashSet<usize> = HashSet::with_capacity(number_of_pieces);
@@ -154,11 +180,11 @@ impl Client {
         info! {"completed pieces {}", completed_pieces}
 
         loop {
-            if completed_pieces == self.torrent_file.pieces.len() {
+            if completed_pieces == pieces.len() {
                 persisted_file
                     .write_pieces(
                         &mut downloaded_file,
-                        self.torrent_file.piece_length as usize,
+                        self.torrent_file.info.piece_length as usize,
                     )
                     .await?;
                 break;
@@ -166,20 +192,17 @@ impl Client {
 
             let received_piece = receiver_piece.recv().await?;
             info! {"completed pieces {}", completed_pieces}
-            info! {"asd {}", self.torrent_file.pieces.len()}
+            info! {"asd {}", pieces.len()}
 
             if completed_pieces % 100 == 0 {
                 persisted_file
                     .write_pieces(
                         &mut downloaded_file,
-                        self.torrent_file.piece_length as usize,
+                        self.torrent_file.info.piece_length as usize,
                     )
                     .await?;
             }
-            if Self::piece_hash_is_correct(
-                &received_piece.1,
-                self.torrent_file.pieces[received_piece.0],
-            ) {
+            if Self::piece_hash_is_correct(&received_piece.1, pieces[received_piece.0]) {
                 info!("Received piece number: {}", received_piece.0);
                 downloaded_file.insert(received_piece.0, received_piece.1.clone());
                 completed_pieces += 1;
